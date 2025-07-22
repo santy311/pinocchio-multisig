@@ -14,6 +14,8 @@ pub enum MultisigError {
     MultisigAlreadyInitialized,
     // Member not found
     MemberNotFound,
+    // Not admin
+    NotAdmin,
 }
 
 impl From<MultisigError> for ProgramError {

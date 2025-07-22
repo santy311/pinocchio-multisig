@@ -4,7 +4,7 @@ use pinocchio::{
 
 use crate::{
     error::MultisigError,
-    state::{load_ix_data, multisig::Multisig, DataLen, Member},
+    state::{check_admin_action, load_ix_data, multisig::Multisig, DataLen, Member},
 };
 
 pub fn process_remove_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
@@ -26,6 +26,10 @@ pub fn process_remove_member_instruction(accounts: &[AccountInfo], data: &[u8]) 
 
     // Validate the PDA
     Multisig::validate_pda(ix_data.bump, multisig_acc.key(), payer_acc.key())?;
+
+    check_admin_action(payer_acc.key(), unsafe {
+        multisig_acc.borrow_data_unchecked()
+    })?;
 
     let space = multisig_acc.data_len() - Member::LEN;
     let rent_diff = multisig_acc.lamports() - rent.minimum_balance(space);

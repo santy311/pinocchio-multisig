@@ -46,6 +46,9 @@ pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) 
         *payer_acc.key(),
         ix_data.threshold,
         ix_data.num_members,
+        ix_data.max_expiry_duration,
+        ix_data.veto_threshold,
+        ix_data.seed,
         ix_data.bump,
     );
 
@@ -79,21 +82,34 @@ pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) 
 pub struct InitMultisigData {
     pub threshold: u8,
     pub num_members: u8,
+    pub max_expiry_duration: u32,
+    pub veto_threshold: u8,
+    pub seed: u16,
     pub bump: u8,
 }
 
 impl DataLen for InitMultisigData {
-    const LEN: usize = 1 + 1 + 1;
+    const LEN: usize = 10;
 }
 
 impl InitMultisigData {
     pub fn from_bytes(bytes: &[u8]) -> Self {
+        assert!(
+            bytes.len() >= Self::LEN,
+            "Not enough bytes to deserialize InitMultisigData"
+        );
         let threshold = bytes[0];
         let num_members = bytes[1];
-        let bump = bytes[2];
+        let max_expiry_duration = u32::from_le_bytes([bytes[2], bytes[3], bytes[4], bytes[5]]);
+        let veto_threshold = bytes[6];
+        let seed = u16::from_le_bytes([bytes[7], bytes[8]]);
+        let bump = bytes[9];
         Self {
             threshold,
             num_members,
+            max_expiry_duration,
+            veto_threshold,
+            seed,
             bump,
         }
     }
@@ -102,7 +118,10 @@ impl InitMultisigData {
         let mut bytes = [0u8; Self::LEN];
         bytes[0] = self.threshold;
         bytes[1] = self.num_members;
-        bytes[2] = self.bump;
+        bytes[2..6].copy_from_slice(&self.max_expiry_duration.to_le_bytes());
+        bytes[6] = self.veto_threshold;
+        bytes[7..9].copy_from_slice(&self.seed.to_le_bytes());
+        bytes[9] = self.bump;
         bytes
     }
 }

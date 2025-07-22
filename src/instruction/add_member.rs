@@ -7,7 +7,7 @@ use pinocchio::{
 };
 use pinocchio_system::instructions::Transfer;
 
-use crate::state::{load_ix_data, multisig::Multisig, DataLen, Member};
+use crate::state::{check_admin_action, load_ix_data, multisig::Multisig, DataLen, Member};
 
 pub fn process_add_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let [payer_acc, multisig_acc, sysvar_rent_acc, _remaining_accounts @ ..] = accounts else {
@@ -43,6 +43,10 @@ pub fn process_add_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> 
     let space = multisig_acc.data_len() + Member::LEN * ix_data.num_members as usize;
 
     let rent_diff = rent.minimum_balance(space) - multisig_acc.lamports();
+
+    check_admin_action(payer_acc.key(), unsafe {
+        multisig_acc.borrow_data_unchecked()
+    })?;
 
     if rent_diff > 0 {
         Transfer {

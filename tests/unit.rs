@@ -63,6 +63,9 @@ fn create_initialize_multisig_ix(
     let binding = InitMultisigData {
         threshold: 1,
         num_members: 3,
+        max_expiry_duration: 3 * 24 * 60 * 60,
+        veto_threshold: 1,
+        seed: 1,
         bump,
     };
     let ix_data = binding.to_bytes();
@@ -70,12 +73,7 @@ fn create_initialize_multisig_ix(
     ix_data_with_discriminator.extend_from_slice(&ix_data);
 
     let members = [
-        Member::new(
-            Pubkey::from_str("3hPmQsxMb4buU1PozSqMS7wni14JoP5kmPA9UTpJnerb")
-                .unwrap()
-                .to_bytes(),
-            1,
-        ),
+        Member::new(fee_payer.pubkey().to_bytes(), 1),
         Member::new(
             Pubkey::from_str("CzYQ2kFnBxsNEt9Zy34vQ3n5fSDhvA4o4XaTnq1rLvyr")
                 .unwrap()
@@ -182,16 +180,17 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    let result = svm.send_transaction(tx);
-    println!("result: {:?}", result);
+    svm.send_transaction(tx).unwrap();
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
     let multisig_bytes = &multisig_data[..Multisig::LEN];
     let multisig = Multisig::from_bytes(multisig_bytes).unwrap();
-    println!("multisig: {:?}", multisig);
     assert_eq!(multisig.creator, fee_payer.pubkey().to_bytes());
     assert_eq!(multisig.threshold, 1);
     assert_eq!(multisig.num_members, 3);
     assert_eq!(multisig.bump, bump);
+    assert_eq!(multisig.max_expiry_duration, 3 * 24 * 60 * 60);
+    assert_eq!(multisig.veto_threshold, 1);
+    assert_eq!(multisig.seed, 1);
 
     let members_data = &multisig_data[Multisig::LEN..];
     for member_data in members_data.chunks(Member::LEN) {
