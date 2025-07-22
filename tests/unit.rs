@@ -2,9 +2,9 @@ use litesvm::LiteSVM;
 use pinocchio_multisig::{
     instruction::{
         add_member::AddMemberData, init_multisig::InitMultisigData,
-        modify_config::ModifyConfigData, remove_member::RemoveMemberData,
+        modify_config::ModifyConfigData, remove_member::RemoveMemberData, CreateProposalData,
     },
-    state::{DataLen, Member, Multisig},
+    state::{DataLen, Member, Multisig, Proposal},
 };
 use solana_sdk::{
     instruction::{AccountMeta, Instruction},
@@ -38,7 +38,12 @@ fn modify_config_ix(
     state_pda: Pubkey,
     bump: u8,
 ) -> Instruction {
-    let binding = ModifyConfigData { threshold: 2, bump };
+    let binding = ModifyConfigData {
+        threshold: 2,
+        max_expiry_duration: 1 * 24 * 60 * 60,
+        veto_threshold: 2,
+        bump,
+    };
     let ix_data = binding.to_bytes();
     let mut ix_data_with_discriminator = vec![2];
     ix_data_with_discriminator.extend_from_slice(&ix_data);
@@ -171,6 +176,34 @@ fn remove_member_ix(
     }
 }
 
+fn create_create_proposal_ix(
+    program_id: Pubkey,
+    fee_payer: &Keypair,
+    state_pda: Pubkey,
+    proposal_acc: Pubkey,
+    multisig_bump: u8,
+    proposal_bump: u8,
+) -> Instruction {
+    let binding = CreateProposalData {
+        multisig_bump,
+        proposal_bump,
+    };
+    let ix_data = binding.to_bytes();
+    let mut ix_data_with_discriminator = vec![4];
+    ix_data_with_discriminator.extend_from_slice(&ix_data);
+
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(fee_payer.pubkey(), true),
+            AccountMeta::new(state_pda, false),
+            AccountMeta::new(proposal_acc, false),
+            AccountMeta::new_readonly(rent::id(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: ix_data_with_discriminator.try_into().unwrap(),
+    }
+}
 #[test]
 fn test_initialize_and_add_mapping() {
     let (mut svm, fee_payer, program_id, state_pda, bump) = setup_svm_and_program();
@@ -285,4 +318,85 @@ fn test_initialize_and_add_mapping() {
     let multisig_bytes = &multisig_data[..Multisig::LEN];
     let multisig = Multisig::from_bytes(multisig_bytes).unwrap();
     assert_eq!(multisig.threshold, 2);
+    assert_eq!(multisig.max_expiry_duration, 1 * 24 * 60 * 60);
+    assert_eq!(multisig.veto_threshold, 2);
+
+    // Success: Create proposal
+    println!("=========== Creating proposal ===========");
+    let (proposal_acc, proposal_bump) = Pubkey::find_program_address(
+        &[
+            b"proposal",
+            fee_payer.pubkey().as_ref(),
+            &(multisig.proposal_counter + 1).to_le_bytes(),
+        ],
+        &program_id,
+    );
+
+    println!("proposal_acc: {:?}", proposal_acc);
+    println!("proposal_bump: {:?}", proposal_bump);
+
+    let ix = create_create_proposal_ix(
+        program_id,
+        &fee_payer,
+        state_pda,
+        proposal_acc,
+        bump,
+        proposal_bump,
+    );
+    let msg =
+        v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
+    svm.send_transaction(tx).unwrap();
+
+    let multisig_data = svm.get_account(&state_pda).unwrap().data;
+    let multisig_bytes = &multisig_data[..Multisig::LEN];
+    let multisig = Multisig::from_bytes(multisig_bytes).unwrap();
+    assert_eq!(multisig.proposal_counter, 1);
+
+    let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
+    let proposal_bytes = &proposal_data[..Proposal::LEN];
+    let proposal = Proposal::from_bytes(proposal_bytes).unwrap();
+    assert_eq!(proposal.multisig, state_pda.to_bytes());
+    assert_eq!(proposal.id, 0);
+    assert_eq!(proposal.creator, 0);
+    assert_eq!(proposal.status, 0);
+
+    svm.expire_blockhash();
+
+    // Success: Create proposal
+    println!("=========== Creating 2nd proposal ===========");
+    let (proposal_acc, proposal_bump) = Pubkey::find_program_address(
+        &[
+            b"proposal",
+            fee_payer.pubkey().as_ref(),
+            &(multisig.proposal_counter + 1).to_le_bytes(),
+        ],
+        &program_id,
+    );
+
+    let ix = create_create_proposal_ix(
+        program_id,
+        &fee_payer,
+        state_pda,
+        proposal_acc,
+        bump,
+        proposal_bump,
+    );
+    let msg =
+        v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
+    svm.send_transaction(tx).unwrap();
+
+    let multisig_data = svm.get_account(&state_pda).unwrap().data;
+    let multisig_bytes = &multisig_data[..Multisig::LEN];
+    let multisig = Multisig::from_bytes(multisig_bytes).unwrap();
+    assert_eq!(multisig.proposal_counter, 2);
+
+    let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
+    let proposal_bytes = &proposal_data[..Proposal::LEN];
+    let proposal = Proposal::from_bytes(proposal_bytes).unwrap();
+    assert_eq!(proposal.multisig, state_pda.to_bytes());
+    assert_eq!(proposal.id, 1);
+    assert_eq!(proposal.creator, 0);
+    assert_eq!(proposal.status, 0);
 }

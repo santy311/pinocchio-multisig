@@ -16,6 +16,8 @@ pub enum MultisigError {
     MemberNotFound,
     // Not admin
     NotAdmin,
+    // Invalid status
+    InvalidProposalStatus,
 }
 
 impl From<MultisigError> for ProgramError {
