@@ -2,6 +2,7 @@ use crate::error::MultisigError;
 
 use super::utils::DataLen;
 use pinocchio::{
+    msg,
     program_error::ProgramError,
     pubkey::{self, Pubkey},
     sysvars::{clock::Clock, Sysvar},
@@ -64,6 +65,11 @@ impl Proposal {
         id_seed: u64,
         owner: &Pubkey,
     ) -> Result<(), ProgramError> {
+        msg!("Validating PDA");
+        msg!("owner: {:?}", owner);
+        msg!("id_seed: {:?}", id_seed.to_le_bytes().as_ref());
+        msg!("bump: {:?}", bump);
+        msg!("pda: {:?}", pda);
         let id_seed_bytes = &id_seed.to_le_bytes();
         let seed_with_bump = &[
             Self::SEED.as_bytes(),
@@ -73,6 +79,8 @@ impl Proposal {
         ];
         let derived = pubkey::create_program_address(seed_with_bump, &crate::ID)?;
         if derived != *pda {
+            msg!("derived: {:?}", derived);
+            msg!("pda: {:?}", pda);
             return Err(MultisigError::PdaMismatch.into());
         }
         Ok(())
@@ -127,5 +135,17 @@ impl Proposal {
             3 => Ok(ProposalStatus::Vetoed),
             _ => Err(MultisigError::InvalidProposalStatus),
         }
+    }
+
+    pub fn vote(&mut self, vote: u8) -> Result<(), ProgramError> {
+        if vote != 0 && vote != 1 {
+            return Err(MultisigError::InvalidVotingOption.into());
+        }
+        if vote == 0 {
+            self.no_votes += 1;
+        } else {
+            self.yes_votes += 1;
+        }
+        Ok(())
     }
 }

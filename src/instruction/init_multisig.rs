@@ -7,10 +7,11 @@ use pinocchio::{
 };
 use pinocchio_system::instructions::CreateAccount;
 
-use crate::state::{load_ix_data, multisig::Multisig, DataLen, Member};
+use crate::state::{multisig::Multisig, DataLen, Member, Vault};
 
 pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
-    let [payer_acc, multisig_acc, sysvar_rent_acc, _remaining_accounts @ ..] = accounts else {
+    let [payer_acc, multisig_acc, vault_acc, sysvar_rent_acc, _remaining_accounts @ ..] = accounts
+    else {
         return Err(ProgramError::NotEnoughAccountKeys);
     };
 
@@ -32,6 +33,8 @@ pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) 
     // Validate the PDA
     Multisig::validate_pda(ix_data.bump, multisig_acc.key(), payer_acc.key())?;
 
+    Vault::validate_pda(ix_data.vault_bump, vault_acc.key(), multisig_acc.key())?;
+
     // Signer seeds
     let signer_seeds = [
         Seed::from(Multisig::SEED.as_bytes()),
@@ -48,8 +51,10 @@ pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) 
         ix_data.num_members,
         ix_data.max_expiry_duration,
         ix_data.veto_threshold,
+        *vault_acc.key(),
         ix_data.seed,
         ix_data.bump,
+        ix_data.vault_bump,
     );
 
     // Create the account
@@ -66,7 +71,7 @@ pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) 
     multisig_data[..Multisig::LEN].copy_from_slice(&multisig.to_bytes());
 
     for (i, member) in members_bytes.chunks(Member::LEN).enumerate() {
-        let member_data = unsafe { load_ix_data::<Member>(member)? };
+        let member_data = unsafe { Member::from_bytes(member)? };
         let start_offset = Multisig::LEN + i * Member::LEN;
         let end_offset = start_offset + Member::LEN;
         let member_segment = &mut multisig_data[start_offset..end_offset];
@@ -86,10 +91,11 @@ pub struct InitMultisigData {
     pub veto_threshold: u8,
     pub seed: u16,
     pub bump: u8,
+    pub vault_bump: u8,
 }
 
 impl DataLen for InitMultisigData {
-    const LEN: usize = 10;
+    const LEN: usize = 10 + 1;
 }
 
 impl InitMultisigData {
@@ -104,6 +110,7 @@ impl InitMultisigData {
         let veto_threshold = bytes[6];
         let seed = u16::from_le_bytes([bytes[7], bytes[8]]);
         let bump = bytes[9];
+        let vault_bump = bytes[10];
         Self {
             threshold,
             num_members,
@@ -111,6 +118,7 @@ impl InitMultisigData {
             veto_threshold,
             seed,
             bump,
+            vault_bump,
         }
     }
 
@@ -122,6 +130,7 @@ impl InitMultisigData {
         bytes[6] = self.veto_threshold;
         bytes[7..9].copy_from_slice(&self.seed.to_le_bytes());
         bytes[9] = self.bump;
+        bytes[10] = self.vault_bump;
         bytes
     }
 }

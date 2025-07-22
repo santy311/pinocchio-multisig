@@ -18,6 +18,12 @@ pub enum MultisigError {
     NotAdmin,
     // Invalid status
     InvalidProposalStatus,
+    // Member already exists
+    MemberAlreadyExists,
+    // Member already voted
+    MemberAlreadyVoted,
+    // Invalid voting option
+    InvalidVotingOption,
 }
 
 impl From<MultisigError> for ProgramError {

@@ -45,15 +45,15 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
     Proposal::validate_pda(
         ix_data.proposal_bump,
         proposal_acc.key(),
-        multisig.proposal_counter + 1,
-        payer_acc.key(),
+        multisig.proposal_counter,
+        multisig_acc.key(),
     )?;
 
     // Signer seeds
-    let proposal_id_bytes = (multisig.proposal_counter + 1).to_le_bytes();
+    let proposal_id_bytes = (multisig.proposal_counter).to_le_bytes();
     let multisig_signer_seeds = [
         Seed::from(Proposal::SEED.as_bytes()),
-        Seed::from(payer_acc.key().as_ref()),
+        Seed::from(multisig_acc.key().as_ref()),
         Seed::from(proposal_id_bytes.as_ref()),
         Seed::from(&pda_bump_bytes[..]),
     ];
