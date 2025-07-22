@@ -85,18 +85,37 @@ pub fn process_vote_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
     let mut proposal = Proposal::from_bytes(proposal_data)?;
 
     msg!("Voting");
-    let old_size = proposal_acc.data_len() - Proposal::LEN - 1;
-    if ix_data.vote == 0 {
-        voter_list_data[old_size] = member_index;
-    } else {
-        msg!("Copying voter list");
-        voter_list_data.copy_within(
-            (proposal.yes_votes as usize)..,
-            (proposal.yes_votes as usize) + 1,
-        );
-        voter_list_data[old_size] = member_index;
+    let yes_votes = proposal.yes_votes as usize;
+    let no_votes = proposal.no_votes as usize;
+    let veto_votes = proposal.veto_votes as usize;
+    let total_votes = yes_votes + no_votes + veto_votes;
+
+    match ix_data.vote {
+        0 => {
+            // No vote: insert at end of no section, shift veto right
+            voter_list_data
+                .copy_within(yes_votes + no_votes..total_votes, yes_votes + no_votes + 1);
+            voter_list_data[yes_votes + no_votes] = member_index;
+            proposal.no_votes += 1;
+        }
+        1 => {
+            // Yes vote: insert at end of yes section, shift no+veto right
+            voter_list_data.copy_within(yes_votes..total_votes, yes_votes + 1);
+            voter_list_data[yes_votes] = member_index;
+            proposal.yes_votes += 1;
+        }
+        2 => {
+            // Veto vote: append at end
+            voter_list_data[total_votes] = member_index;
+            proposal.veto_votes += 1;
+        }
+        _ => return Err(ProgramError::InvalidInstructionData),
     }
-    proposal.vote(ix_data.vote)?;
+
+    unsafe {
+        proposal_acc.borrow_mut_data_unchecked()[..Proposal::LEN]
+            .copy_from_slice(&proposal.to_bytes());
+    }
 
     Ok(())
 }

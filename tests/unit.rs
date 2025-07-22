@@ -17,7 +17,7 @@ use solana_sdk::{
     sysvar::rent,
     transaction::VersionedTransaction,
 };
-use std::str::FromStr;
+use std::{collections::HashMap, str::FromStr};
 
 fn setup_svm_and_program() -> (LiteSVM, Keypair, Keypair, Pubkey) {
     let mut svm = LiteSVM::new();
@@ -232,11 +232,12 @@ fn create_vote_ix(
     proposal_acc: Pubkey,
     state_bump: u8,
     proposal_id: u64,
+    vote: u8,
     proposal_bump: u8,
 ) -> Instruction {
     let binding = VoteData {
         proposal_id,
-        vote: 1,
+        vote,
         multisig_bump: state_bump,
         proposal_bump,
     };
@@ -439,6 +440,7 @@ fn test_initialize_and_add_mapping() {
         proposal_acc,
         state_bump,
         proposal.id,
+        1,
         proposal_bump,
     );
     let msg =
@@ -451,7 +453,168 @@ fn test_initialize_and_add_mapping() {
     let proposal = Proposal::from_bytes(proposal_bytes).unwrap();
     println!("proposal: {:?}", proposal);
     assert_eq!(proposal.status, 0);
+    assert_eq!(proposal.yes_votes, 1);
+    assert_eq!(proposal.no_votes, 0);
+    assert_eq!(proposal.veto_votes, 0);
     let voter_list_data = &proposal_data[Proposal::LEN..];
     let voter_list = voter_list_data.chunks(1).map(|v| v[0]).collect::<Vec<u8>>();
     assert_eq!(voter_list, vec![0]);
+}
+
+#[test]
+fn test_five_members_different_votes() {
+    use solana_sdk::signer::Signer;
+    let (mut svm, fee_payer, _second_admin, program_id) = setup_svm_and_program();
+    let (state_pda, vault_pda, vault_bump, state_bump) = setup_all_pdas(&fee_payer, program_id);
+
+    // Create 5 unique member keypairs
+    let member1 = fee_payer.insecure_clone(); // admin
+    let member2 = Keypair::new();
+    let member3 = Keypair::new();
+    let member4 = Keypair::new();
+    let member5 = Keypair::new();
+    let members = [&member1, &member2, &member3, &member4, &member5];
+    for m in &members[1..] {
+        svm.airdrop(&m.pubkey(), 100000000).unwrap();
+    }
+
+    // Initialize multisig with 5 members
+    let init_ix = {
+        let binding = InitMultisigData {
+            threshold: 3,
+            num_members: 5,
+            max_expiry_duration: 3 * 24 * 60 * 60,
+            veto_threshold: 2,
+            seed: 42,
+            bump: state_bump,
+            vault_bump,
+        };
+        let mut ix_data_with_discriminator = vec![0];
+        ix_data_with_discriminator.extend_from_slice(&binding.to_bytes());
+        for (i, m) in members.iter().enumerate() {
+            let role = if i == 0 { 1 } else { 0 };
+            let mut member = Member::new(m.pubkey().to_bytes(), role);
+            member.member_id = i as u8;
+            ix_data_with_discriminator.extend_from_slice(&member.to_bytes());
+        }
+        Instruction {
+            program_id,
+            accounts: vec![
+                AccountMeta::new(member1.pubkey(), true),
+                AccountMeta::new(state_pda, false),
+                AccountMeta::new(vault_pda, false),
+                AccountMeta::new_readonly(rent::id(), false),
+                AccountMeta::new_readonly(system_program::id(), false),
+            ],
+            data: ix_data_with_discriminator.try_into().unwrap(),
+        }
+    };
+    let msg = v0::Message::try_compile(&member1.pubkey(), &[init_ix], &[], svm.latest_blockhash())
+        .unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
+    svm.send_transaction(tx).unwrap();
+
+    // Create proposal
+    let multisig_data = svm.get_account(&state_pda).unwrap().data;
+    let multisig = Multisig::from_bytes(&multisig_data[..Multisig::LEN]).unwrap();
+    let (proposal_acc, proposal_bump) = Pubkey::find_program_address(
+        &[
+            b"proposal",
+            state_pda.as_ref(),
+            &(multisig.proposal_counter).to_le_bytes(),
+        ],
+        &program_id,
+    );
+    let create_proposal_ix = create_create_proposal_ix(
+        program_id,
+        &member1,
+        state_pda,
+        proposal_acc,
+        state_bump,
+        proposal_bump,
+    );
+    let msg = v0::Message::try_compile(
+        &member1.pubkey(),
+        &[create_proposal_ix],
+        &[],
+        svm.latest_blockhash(),
+    )
+    .unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
+    svm.send_transaction(tx).unwrap();
+
+    // Each member votes: [yes, no, veto, yes, no]
+    let votes = [1, 0, 2, 1, 0];
+    for (i, (member, &vote)) in members.iter().zip(votes.iter()).enumerate() {
+        let ix = create_vote_ix(
+            program_id,
+            member,
+            state_pda,
+            proposal_acc,
+            state_bump,
+            0, // proposal id
+            vote,
+            proposal_bump,
+        );
+        let msg =
+            v0::Message::try_compile(&member.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
+        let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[member]).unwrap();
+        svm.send_transaction(tx).unwrap();
+    }
+
+    // Check proposal vote counts
+    let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
+    let proposal = Proposal::from_bytes(&proposal_data[..Proposal::LEN]).unwrap();
+    assert_eq!(proposal.yes_votes, 2);
+    assert_eq!(proposal.no_votes, 2);
+    assert_eq!(proposal.veto_votes, 1);
+    // Check voter list order: yes, yes, no, no, veto (by member_id)
+    let voter_list_data = &proposal_data[Proposal::LEN..];
+    let voter_list = voter_list_data.chunks(1).map(|v| v[0]).collect::<Vec<u8>>();
+    // The order is: [yes_votes...][no_votes...][veto_votes...]
+    // So should be [0,3,1,4,2] (member_id for yes, yes, no, no, veto)
+    assert_eq!(voter_list.len(), 5);
+    assert_eq!(voter_list[0], 0); // member1 (yes)
+    assert_eq!(voter_list[1], 3); // member4 (yes)
+    assert_eq!(voter_list[2], 1); // member2 (no)
+    assert_eq!(voter_list[3], 4); // member5 (no)
+    assert_eq!(voter_list[4], 2); // member3 (veto)
+
+    // Print all the voting info
+    println!("=========== Voting info ===========");
+    println!("proposal: {:?}", proposal);
+    println!("voter_list: {:?}", voter_list);
+    let members_data = &multisig_data[Multisig::LEN..];
+
+    let mut hashmap = HashMap::new();
+
+    for member_data in members_data.chunks(Member::LEN) {
+        let member = Member::from_bytes(member_data).unwrap();
+        println!(
+            "Member id {}: {:?} with admin role {}",
+            member.member_id,
+            Pubkey::new_from_array(member.pubkey),
+            member.role == 1
+        );
+        hashmap.insert(member.member_id, Pubkey::new_from_array(member.pubkey));
+    }
+
+    println!("voter list");
+    println!("number of voters: {:?}", voter_list.len());
+
+    println!("nay sayers");
+    for i in 0..proposal.no_votes {
+        println!("{:?}", hashmap.get(&voter_list[i as usize]).unwrap());
+    }
+    println!("yay sayers");
+    for i in proposal.no_votes..proposal.no_votes + proposal.yes_votes {
+        println!("{:?}", hashmap.get(&voter_list[i as usize]).unwrap());
+    }
+
+    println!("veto sayers");
+    for i in proposal.no_votes + proposal.yes_votes
+        ..proposal.no_votes + proposal.yes_votes + proposal.veto_votes
+    {
+        println!("{:?}", hashmap.get(&voter_list[i as usize]).unwrap());
+    }
 }
