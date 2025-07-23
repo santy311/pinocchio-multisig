@@ -1,7 +1,5 @@
 use pinocchio::{
     account_info::AccountInfo,
-    instruction::{Seed, Signer},
-    msg,
     program_error::ProgramError,
     sysvars::{rent::Rent, Sysvar},
     ProgramResult,
@@ -22,12 +20,14 @@ pub fn process_vote_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
         return Err(ProgramError::InvalidInstructionData);
     }
 
-    msg!("Processing vote instruction");
     let ix_data = VoteData::from_bytes(data)?;
 
-    msg!("Validating PDA");
-    Multisig::validate_pda(ix_data.multisig_bump, multisig_acc.key(), payer_acc.key())?;
-    msg!("Validating proposal PDA");
+    Multisig::validate_pda(
+        ix_data.multisig_bump,
+        multisig_acc.key(),
+        ix_data.multisig_id,
+    )?;
+
     Proposal::validate_pda(
         ix_data.proposal_bump,
         proposal_acc.key(),
@@ -35,21 +35,18 @@ pub fn process_vote_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
         multisig_acc.key(),
     )?;
 
-    msg!("Getting member index");
     let member_index = get_member_index_if_exists(payer_acc.key(), unsafe {
         multisig_acc.borrow_data_unchecked()
     })?;
 
     {
-        msg!("Checking proposal status");
-        let (proposal_meta_data, mut voter_list_data) =
+        let (proposal_meta_data, voter_list_data) =
             unsafe { proposal_acc.borrow_mut_data_unchecked() }.split_at(Proposal::LEN);
-        let mut proposal = Proposal::from_bytes(proposal_meta_data)?;
+        let proposal = Proposal::from_bytes(proposal_meta_data)?;
         if proposal.get_status()? != ProposalStatus::Pending {
             return Err(ProgramError::InvalidInstructionData);
         }
 
-        msg!("Checking if member already voted");
         for voter in voter_list_data.chunks(1) {
             let voter_id = voter[0];
             if voter_id == member_index {
@@ -58,14 +55,12 @@ pub fn process_vote_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
         }
     }
 
-    msg!("Adding member to voter list");
     let old_size = proposal_acc.data_len();
     let new_size = old_size + 1;
 
     let new_rent = Rent::get()?.minimum_balance(new_size);
     let rent_diff = new_rent - proposal_acc.lamports();
     if rent_diff > 0 {
-        msg!("Transferring rent");
         Transfer {
             from: &payer_acc,
             to: &proposal_acc,
@@ -74,17 +69,12 @@ pub fn process_vote_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
         .invoke()?;
     }
 
-    msg!("Resizing proposal account");
-    msg!("old_size: {:?}", old_size);
-    msg!("new_size: {:?}", new_size);
     proposal_acc.resize(new_size)?;
 
-    msg!("new accounts: {:?}", proposal_acc.data_len());
     let (proposal_data, voter_list_data) =
         unsafe { proposal_acc.borrow_mut_data_unchecked() }.split_at_mut(Proposal::LEN);
     let mut proposal = Proposal::from_bytes(proposal_data)?;
 
-    msg!("Voting");
     let yes_votes = proposal.yes_votes as usize;
     let no_votes = proposal.no_votes as usize;
     let veto_votes = proposal.veto_votes as usize;
@@ -125,10 +115,11 @@ pub struct VoteData {
     pub vote: u8,
     pub multisig_bump: u8,
     pub proposal_bump: u8,
+    pub multisig_id: u64,
 }
 
 impl DataLen for VoteData {
-    const LEN: usize = 8 + 1 + 1 + 1;
+    const LEN: usize = 8 + 1 + 1 + 1 + 8;
 }
 
 impl VoteData {
@@ -142,6 +133,10 @@ impl VoteData {
             vote: bytes[8],
             multisig_bump: bytes[9],
             proposal_bump: bytes[10],
+            multisig_id: u64::from_le_bytes([
+                bytes[11], bytes[12], bytes[13], bytes[14], bytes[15], bytes[16], bytes[17],
+                bytes[18],
+            ]),
         })
     }
 
@@ -151,6 +146,7 @@ impl VoteData {
         bytes[8] = self.vote;
         bytes[9] = self.multisig_bump;
         bytes[10] = self.proposal_bump;
+        bytes[11..19].copy_from_slice(&self.multisig_id.to_le_bytes());
         bytes
     }
 }

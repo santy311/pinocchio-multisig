@@ -1,7 +1,7 @@
 use litesvm::LiteSVM;
 use pinocchio_multisig::{
     instruction::{
-        add_member::AddMemberData, init_multisig::InitMultisigData,
+        add_member::AddMemberData, execute::ExecuteData, init_multisig::InitMultisigData,
         modify_config::ModifyConfigData, remove_member::RemoveMemberData, CreateProposalData,
         VoteData,
     },
@@ -35,9 +35,9 @@ fn setup_svm_and_program() -> (LiteSVM, Keypair, Keypair, Pubkey) {
     (svm, fee_payer, second_admin, program_id)
 }
 
-fn setup_all_pdas(fee_payer: &Keypair, program_id: Pubkey) -> (Pubkey, Pubkey, u8, u8) {
+fn setup_all_pdas(program_id: Pubkey, multisig_id: u64) -> (Pubkey, Pubkey, u8, u8) {
     let (state_pda, state_bump) =
-        Pubkey::find_program_address(&[b"multisig", fee_payer.pubkey().as_ref()], &program_id);
+        Pubkey::find_program_address(&[b"multisig", &multisig_id.to_le_bytes()], &program_id);
 
     let (vault_pda, vault_bump) =
         Pubkey::find_program_address(&[b"vault", state_pda.as_ref()], &program_id);
@@ -50,12 +50,14 @@ fn modify_config_ix(
     fee_payer: &Keypair,
     state_pda: Pubkey,
     state_bump: u8,
+    multisig_id: u64,
 ) -> Instruction {
     let binding = ModifyConfigData {
         threshold: 2,
         max_expiry_duration: 1 * 24 * 60 * 60,
         veto_threshold: 2,
         bump: state_bump,
+        multisig_id,
     };
     let ix_data = binding.to_bytes();
     let mut ix_data_with_discriminator = vec![2];
@@ -79,13 +81,14 @@ fn create_initialize_multisig_ix(
     vault_pda: Pubkey,
     vault_bump: u8,
     state_bump: u8,
+    multisig_id: u64,
 ) -> Instruction {
     let binding = InitMultisigData {
         threshold: 1,
         num_members: 3,
         max_expiry_duration: 3 * 24 * 60 * 60,
         veto_threshold: 1,
-        seed: 1,
+        multisig_id,
         bump: state_bump,
         vault_bump,
     };
@@ -131,10 +134,12 @@ fn create_add_member_ix(
     fee_payer: &Keypair,
     state_pda: Pubkey,
     state_bump: u8,
+    multisig_id: u64,
 ) -> Instruction {
     let binding = AddMemberData {
         num_members: 2,
         bump: state_bump,
+        multisig_id,
     };
     let ix_data = binding.to_bytes();
     let mut ix_data_with_discriminator = vec![1];
@@ -175,10 +180,12 @@ fn remove_member_ix(
     fee_payer: &Keypair,
     state_pda: Pubkey,
     state_bump: u8,
+    multisig_id: u64,
 ) -> Instruction {
     let binding = RemoveMemberData {
         member_id: 1,
         bump: state_bump,
+        multisig_id,
     };
     let ix_data = binding.to_bytes();
     let mut ix_data_with_discriminator = vec![3];
@@ -203,10 +210,12 @@ fn create_create_proposal_ix(
     proposal_acc: Pubkey,
     multisig_bump: u8,
     proposal_bump: u8,
+    multisig_id: u64,
 ) -> Instruction {
     let binding = CreateProposalData {
         multisig_bump,
         proposal_bump,
+        multisig_id,
     };
     let ix_data = binding.to_bytes();
     let mut ix_data_with_discriminator = vec![4];
@@ -234,15 +243,51 @@ fn create_vote_ix(
     proposal_id: u64,
     vote: u8,
     proposal_bump: u8,
+    multisig_id: u64,
 ) -> Instruction {
     let binding = VoteData {
         proposal_id,
         vote,
         multisig_bump: state_bump,
         proposal_bump,
+        multisig_id,
     };
     let ix_data = binding.to_bytes();
     let mut ix_data_with_discriminator = vec![5];
+    ix_data_with_discriminator.extend_from_slice(&ix_data);
+
+    Instruction {
+        program_id,
+        accounts: vec![
+            AccountMeta::new(fee_payer.pubkey(), true),
+            AccountMeta::new(state_pda, false),
+            AccountMeta::new(proposal_acc, false),
+            AccountMeta::new_readonly(rent::id(), false),
+            AccountMeta::new_readonly(system_program::id(), false),
+        ],
+        data: ix_data_with_discriminator.try_into().unwrap(),
+    }
+}
+
+fn create_execute_ix(
+    program_id: Pubkey,
+    fee_payer: &Keypair,
+    state_pda: Pubkey,
+    proposal_acc: Pubkey,
+    state_bump: u8,
+    proposal_bump: u8,
+    multisig_id: u64,
+) -> Instruction {
+    let binding = ExecuteData {
+        proposal_id: 0,
+        multisig_id,
+        bump: state_bump,
+        vault_bump: 0,
+        proposal_bump,
+    };
+
+    let ix_data = binding.to_bytes();
+    let mut ix_data_with_discriminator = vec![6];
     ix_data_with_discriminator.extend_from_slice(&ix_data);
 
     Instruction {
@@ -262,18 +307,25 @@ fn create_vote_ix(
 fn test_initialize_and_add_mapping() {
     let (mut svm, fee_payer, second_admin, program_id) = setup_svm_and_program();
 
-    let (state_pda, vault_pda, vault_bump, state_bump) = setup_all_pdas(&fee_payer, program_id);
+    let multisig_id = 1;
+
+    let (state_pda, vault_pda, vault_bump, state_bump) = setup_all_pdas(program_id, multisig_id);
 
     // Success: Initialize
     println!("=========== Initializing multisig ===========");
     let ix = create_initialize_multisig_ix(
-        program_id, &fee_payer, state_pda, vault_pda, vault_bump, state_bump,
+        program_id,
+        &fee_payer,
+        state_pda,
+        vault_pda,
+        vault_bump,
+        state_bump,
+        multisig_id,
     );
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    let result = svm.send_transaction(tx);
-    assert!(result.is_ok());
+    svm.send_transaction(tx).unwrap();
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
     let multisig_bytes = &multisig_data[..Multisig::LEN];
@@ -284,7 +336,7 @@ fn test_initialize_and_add_mapping() {
     assert_eq!(multisig.bump, state_bump);
     assert_eq!(multisig.max_expiry_duration, 3 * 24 * 60 * 60);
     assert_eq!(multisig.veto_threshold, 1);
-    assert_eq!(multisig.seed, 1);
+    assert_eq!(multisig.multisig_id, multisig_id);
 
     let members_data = &multisig_data[Multisig::LEN..];
     for member_data in members_data.chunks(Member::LEN) {
@@ -300,7 +352,7 @@ fn test_initialize_and_add_mapping() {
     // Success: Add member
     println!("=========== Adding member ===========");
 
-    let ix = create_add_member_ix(program_id, &fee_payer, state_pda, state_bump);
+    let ix = create_add_member_ix(program_id, &fee_payer, state_pda, state_bump, multisig_id);
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
@@ -325,7 +377,7 @@ fn test_initialize_and_add_mapping() {
 
     // Success: Remove member
     println!("=========== Removing member ===========");
-    let ix = remove_member_ix(program_id, &fee_payer, state_pda, state_bump);
+    let ix = remove_member_ix(program_id, &fee_payer, state_pda, state_bump, multisig_id);
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
@@ -349,7 +401,7 @@ fn test_initialize_and_add_mapping() {
 
     // Failure: Remove member
     println!("=========== Removing non-existent member ===========");
-    let ix = remove_member_ix(program_id, &fee_payer, state_pda, state_bump);
+    let ix = remove_member_ix(program_id, &fee_payer, state_pda, state_bump, multisig_id);
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
@@ -369,7 +421,7 @@ fn test_initialize_and_add_mapping() {
     }
 
     println!("=========== Modifying config ===========");
-    let ix = modify_config_ix(program_id, &fee_payer, state_pda, state_bump);
+    let ix = modify_config_ix(program_id, &fee_payer, state_pda, state_bump, multisig_id);
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
@@ -381,6 +433,7 @@ fn test_initialize_and_add_mapping() {
     assert_eq!(multisig.threshold, 2);
     assert_eq!(multisig.max_expiry_duration, 1 * 24 * 60 * 60);
     assert_eq!(multisig.veto_threshold, 2);
+    println!("multisig: {:?}", multisig);
 
     // Success: Create proposal
     println!("=========== Creating proposal ===========");
@@ -393,15 +446,6 @@ fn test_initialize_and_add_mapping() {
         &program_id,
     );
 
-    println!(
-        "Derived proposal PDA: {:?}, bump: {}",
-        proposal_acc, proposal_bump
-    );
-    println!("bump: {:?}", proposal_bump.to_le_bytes());
-    println!("pda: {:?}", proposal_acc.to_bytes());
-    println!("id_seed: {:?}", multisig.proposal_counter.to_le_bytes());
-    println!("owner: {:?}", state_pda.to_bytes());
-
     let ix = create_create_proposal_ix(
         program_id,
         &fee_payer,
@@ -409,6 +453,7 @@ fn test_initialize_and_add_mapping() {
         proposal_acc,
         state_bump,
         proposal_bump,
+        multisig_id,
     );
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
@@ -423,11 +468,12 @@ fn test_initialize_and_add_mapping() {
     let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
     let proposal_bytes = &proposal_data[..Proposal::LEN];
     let proposal = Proposal::from_bytes(proposal_bytes).unwrap();
-    println!("proposal: {:?}", proposal);
     assert_eq!(proposal.multisig, state_pda.to_bytes());
     assert_eq!(proposal.id, 0);
     assert_eq!(proposal.creator, 0);
     assert_eq!(proposal.status, 0);
+
+    println!("proposal: {:?}", proposal);
 
     svm.expire_blockhash();
 
@@ -442,6 +488,7 @@ fn test_initialize_and_add_mapping() {
         proposal.id,
         1,
         proposal_bump,
+        multisig_id,
     );
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
@@ -451,7 +498,6 @@ fn test_initialize_and_add_mapping() {
     let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
     let proposal_bytes = &proposal_data[..Proposal::LEN];
     let proposal = Proposal::from_bytes(proposal_bytes).unwrap();
-    println!("proposal: {:?}", proposal);
     assert_eq!(proposal.status, 0);
     assert_eq!(proposal.yes_votes, 1);
     assert_eq!(proposal.no_votes, 0);
@@ -459,13 +505,18 @@ fn test_initialize_and_add_mapping() {
     let voter_list_data = &proposal_data[Proposal::LEN..];
     let voter_list = voter_list_data.chunks(1).map(|v| v[0]).collect::<Vec<u8>>();
     assert_eq!(voter_list, vec![0]);
+    println!("proposal: {:?}", proposal);
+
+    println!("=========== End of test ===========");
 }
 
 #[test]
 fn test_five_members_different_votes() {
     use solana_sdk::signer::Signer;
     let (mut svm, fee_payer, _second_admin, program_id) = setup_svm_and_program();
-    let (state_pda, vault_pda, vault_bump, state_bump) = setup_all_pdas(&fee_payer, program_id);
+    let multisig_id = 2;
+
+    let (state_pda, vault_pda, vault_bump, state_bump) = setup_all_pdas(program_id, multisig_id);
 
     // Create 5 unique member keypairs
     let member1 = fee_payer.insecure_clone(); // admin
@@ -481,11 +532,11 @@ fn test_five_members_different_votes() {
     // Initialize multisig with 5 members
     let init_ix = {
         let binding = InitMultisigData {
-            threshold: 3,
+            threshold: 2,
             num_members: 5,
             max_expiry_duration: 3 * 24 * 60 * 60,
             veto_threshold: 2,
-            seed: 42,
+            multisig_id,
             bump: state_bump,
             vault_bump,
         };
@@ -532,6 +583,7 @@ fn test_five_members_different_votes() {
         proposal_acc,
         state_bump,
         proposal_bump,
+        multisig_id,
     );
     let msg = v0::Message::try_compile(
         &member1.pubkey(),
@@ -555,6 +607,7 @@ fn test_five_members_different_votes() {
             0, // proposal id
             vote,
             proposal_bump,
+            multisig_id,
         );
         let msg =
             v0::Message::try_compile(&member.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
@@ -617,4 +670,24 @@ fn test_five_members_different_votes() {
     {
         println!("{:?}", hashmap.get(&voter_list[i as usize]).unwrap());
     }
+
+    // Execute proposal
+    let ix = create_execute_ix(
+        program_id,
+        &member1,
+        state_pda,
+        proposal_acc,
+        state_bump,
+        proposal_bump,
+        multisig_id,
+    );
+    let msg =
+        v0::Message::try_compile(&member1.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
+    svm.send_transaction(tx).unwrap();
+
+    // Check proposal status
+    let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
+    let proposal = Proposal::from_bytes(&proposal_data[..Proposal::LEN]).unwrap();
+    assert_eq!(proposal.status, 1);
 }

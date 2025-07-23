@@ -1,6 +1,7 @@
 use pinocchio::{
     account_info::AccountInfo,
     instruction::{Seed, Signer},
+    msg,
     program_error::ProgramError,
     sysvars::rent::Rent,
     ProgramResult,
@@ -25,18 +26,20 @@ pub fn process_add_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> 
     let rent = Rent::from_account_info(sysvar_rent_acc)?;
 
     let (ix_data_bytes, members_bytes) = data.split_at(AddMemberData::LEN);
-    let ix_data = unsafe { load_ix_data::<AddMemberData>(ix_data_bytes)? };
+    let ix_data = AddMemberData::from_bytes(ix_data_bytes);
 
+    msg!("ix_data: {:?}", ix_data);
     let pda_bump_bytes = [ix_data.bump];
 
     // Validate the PDA
-    Multisig::validate_pda(ix_data.bump, multisig_acc.key(), payer_acc.key())?;
+    Multisig::validate_pda(ix_data.bump, multisig_acc.key(), ix_data.multisig_id)?;
 
     // Signer seeds
+    let multisig_id_bytes = ix_data.multisig_id.to_le_bytes();
     let signer_seeds = [
         Seed::from(Multisig::SEED.as_bytes()),
-        Seed::from(payer_acc.key().as_ref()),
-        Seed::from(&pda_bump_bytes[..]),
+        Seed::from(&multisig_id_bytes[..]),
+        Seed::from(&pda_bump_bytes),
     ];
     let signers = [Signer::from(&signer_seeds[..])];
 
@@ -84,23 +87,32 @@ pub fn process_add_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> 
 pub struct AddMemberData {
     pub num_members: u8,
     pub bump: u8,
+    pub multisig_id: u64,
 }
 
 impl DataLen for AddMemberData {
-    const LEN: usize = 1 + 1 + 1;
+    const LEN: usize = 1 + 1 + 8;
 }
 
 impl AddMemberData {
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let num_members = bytes[1];
-        let bump = bytes[2];
-        Self { num_members, bump }
+        let num_members = bytes[0];
+        let bump = bytes[1];
+        let multisig_id = u64::from_le_bytes([
+            bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
+        ]);
+        Self {
+            num_members,
+            bump,
+            multisig_id,
+        }
     }
 
     pub fn to_bytes(&self) -> [u8; Self::LEN] {
         let mut bytes = [0u8; Self::LEN];
         bytes[0] = self.num_members;
         bytes[1] = self.bump;
+        bytes[2..10].copy_from_slice(&self.multisig_id.to_le_bytes());
         bytes
     }
 }

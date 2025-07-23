@@ -24,6 +24,8 @@ pub enum MultisigError {
     MemberAlreadyVoted,
     // Invalid voting option
     InvalidVotingOption,
+    // Proposal not expired
+    ProposalNotExpired,
 }
 
 impl From<MultisigError> for ProgramError {

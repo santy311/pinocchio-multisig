@@ -19,7 +19,7 @@ pub fn process_modify_config_instruction(accounts: &[AccountInfo], data: &[u8]) 
     let ix_data = ModifyConfigData::from_bytes(data);
 
     // Validate the PDA
-    Multisig::validate_pda(ix_data.bump, multisig_acc.key(), payer_acc.key())?;
+    Multisig::validate_pda(ix_data.bump, multisig_acc.key(), ix_data.multisig_id)?;
 
     let multisig_data = unsafe { multisig_acc.borrow_mut_data_unchecked() };
     let mut multisig = Multisig::from_bytes(&mut multisig_data[..Multisig::LEN])?;
@@ -40,10 +40,11 @@ pub struct ModifyConfigData {
     pub max_expiry_duration: u32,
     pub veto_threshold: u8,
     pub bump: u8,
+    pub multisig_id: u64,
 }
 
 impl DataLen for ModifyConfigData {
-    const LEN: usize = 1 + 4 + 1 + 1;
+    const LEN: usize = 1 + 4 + 1 + 1 + 8;
 }
 
 impl ModifyConfigData {
@@ -52,11 +53,15 @@ impl ModifyConfigData {
         let max_expiry_duration = u32::from_le_bytes([bytes[1], bytes[2], bytes[3], bytes[4]]);
         let veto_threshold = bytes[5];
         let bump = bytes[6];
+        let multisig_id = u64::from_le_bytes([
+            bytes[7], bytes[8], bytes[9], bytes[10], bytes[11], bytes[12], bytes[13], bytes[14],
+        ]);
         Self {
             threshold,
             max_expiry_duration,
             veto_threshold,
             bump,
+            multisig_id,
         }
     }
 
@@ -66,6 +71,7 @@ impl ModifyConfigData {
         bytes[1..5].copy_from_slice(&self.max_expiry_duration.to_le_bytes());
         bytes[5] = self.veto_threshold;
         bytes[6] = self.bump;
+        bytes[7..15].copy_from_slice(&self.multisig_id.to_le_bytes());
         bytes
     }
 }

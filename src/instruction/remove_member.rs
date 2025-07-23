@@ -22,10 +22,11 @@ pub fn process_remove_member_instruction(accounts: &[AccountInfo], data: &[u8]) 
 
     let rent = Rent::from_account_info(sysvar_rent_acc)?;
 
-    let ix_data = unsafe { load_ix_data::<RemoveMemberData>(data)? };
+    let (ix_data_bytes, _members_bytes) = data.split_at(RemoveMemberData::LEN);
+    let ix_data = RemoveMemberData::from_bytes(ix_data_bytes);
 
     // Validate the PDA
-    Multisig::validate_pda(ix_data.bump, multisig_acc.key(), payer_acc.key())?;
+    Multisig::validate_pda(ix_data.bump, multisig_acc.key(), ix_data.multisig_id)?;
 
     check_admin_action(payer_acc.key(), unsafe {
         multisig_acc.borrow_data_unchecked()
@@ -83,23 +84,32 @@ pub fn process_remove_member_instruction(accounts: &[AccountInfo], data: &[u8]) 
 pub struct RemoveMemberData {
     pub member_id: u8,
     pub bump: u8,
+    pub multisig_id: u64,
 }
 
 impl DataLen for RemoveMemberData {
-    const LEN: usize = 1 + 1;
+    const LEN: usize = 1 + 1 + 8;
 }
 
 impl RemoveMemberData {
     pub fn from_bytes(bytes: &[u8]) -> Self {
-        let member_id = bytes[1];
-        let bump = bytes[2];
-        Self { member_id, bump }
+        let member_id = bytes[0];
+        let bump = bytes[1];
+        let multisig_id = u64::from_le_bytes([
+            bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7], bytes[8], bytes[9],
+        ]);
+        Self {
+            member_id,
+            bump,
+            multisig_id,
+        }
     }
 
     pub fn to_bytes(&self) -> [u8; Self::LEN] {
         let mut bytes = [0u8; Self::LEN];
         bytes[0] = self.member_id;
         bytes[1] = self.bump;
+        bytes[2..10].copy_from_slice(&self.multisig_id.to_le_bytes());
         bytes
     }
 }

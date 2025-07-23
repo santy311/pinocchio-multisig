@@ -62,25 +62,23 @@ impl Proposal {
     pub fn validate_pda(
         bump: u8,
         pda: &Pubkey,
-        id_seed: u64,
-        owner: &Pubkey,
+        proposal_id: u64,
+        multisig_acc: &Pubkey,
     ) -> Result<(), ProgramError> {
-        msg!("Validating PDA");
-        msg!("owner: {:?}", owner);
-        msg!("id_seed: {:?}", id_seed.to_le_bytes().as_ref());
-        msg!("bump: {:?}", bump);
-        msg!("pda: {:?}", pda);
-        let id_seed_bytes = &id_seed.to_le_bytes();
+        let proposal_id_bytes = &proposal_id.to_le_bytes();
+        msg!("multisig_acc: {:?}", multisig_acc);
+        msg!("Proposal ID: {:?}", proposal_id);
+        msg!("Bump: {:?}", bump);
         let seed_with_bump = &[
             Self::SEED.as_bytes(),
-            owner,
-            id_seed_bytes.as_ref(),
+            multisig_acc.as_ref(),
+            proposal_id_bytes.as_ref(),
             &[bump],
         ];
         let derived = pubkey::create_program_address(seed_with_bump, &crate::ID)?;
         if derived != *pda {
-            msg!("derived: {:?}", derived);
-            msg!("pda: {:?}", pda);
+            msg!("Derived: {:?}", derived);
+            msg!("PDA: {:?}", pda);
             return Err(MultisigError::PdaMismatch.into());
         }
         Ok(())

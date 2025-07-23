@@ -19,13 +19,13 @@ pub struct Multisig {
     pub veto_threshold: u8,
     pub proposal_counter: u64,
     pub vault: [u8; 32],
-    pub seed: u16,
+    pub multisig_id: u64,
     pub bump: u8,
     pub vault_bump: u8,
 }
 
 impl DataLen for Multisig {
-    const LEN: usize = 32 + 1 + 1 + 4 + 1 + 8 + 32 + 2 + 1 + 1;
+    const LEN: usize = 32 + 1 + 1 + 4 + 1 + 8 + 32 + 8 + 1 + 1;
 }
 
 impl Multisig {
@@ -38,7 +38,7 @@ impl Multisig {
         max_expiry_duration: u32,
         veto_threshold: u8,
         vault: Pubkey,
-        seed: u16,
+        multisig_id: u64,
         bump: u8,
         vault_bump: u8,
     ) -> Self {
@@ -50,17 +50,16 @@ impl Multisig {
             veto_threshold,
             proposal_counter: 0,
             vault,
-            seed,
+            multisig_id,
             bump,
             vault_bump,
         }
     }
 
-    pub fn validate_pda(bump: u8, pda: &Pubkey, owner: &Pubkey) -> Result<(), ProgramError> {
-        let seed_with_bump = &[Self::SEED.as_bytes(), owner, &[bump]];
+    pub fn validate_pda(bump: u8, pda: &Pubkey, multisig_id: u64) -> Result<(), ProgramError> {
+        let seed_with_bump = &[Self::SEED.as_bytes(), &multisig_id.to_le_bytes(), &[bump]];
         let derived = pubkey::create_program_address(seed_with_bump, &crate::ID)?;
         if derived != *pda {
-            msg!("PDA mismatch: {:?} != {:?}", derived, pda);
             return Err(MultisigError::PdaMismatch.into());
         }
         Ok(())
@@ -79,10 +78,10 @@ impl Multisig {
         let proposal_counter =
             u64::from_le_bytes(unsafe { *(bytes.as_ptr().add(39) as *const [u8; 8]) });
         let vault = unsafe { *(bytes.as_ptr().add(47) as *const [u8; 32]) };
-
-        let seed = u16::from_le_bytes(unsafe { *(bytes.as_ptr().add(79) as *const [u8; 2]) });
-        let bump = bytes[81];
-        let vault_bump = bytes[82];
+        let multisig_id =
+            u64::from_le_bytes(unsafe { *(bytes.as_ptr().add(79) as *const [u8; 8]) });
+        let bump = bytes[87];
+        let vault_bump = bytes[88];
         Ok(Self {
             creator,
             threshold,
@@ -91,7 +90,7 @@ impl Multisig {
             veto_threshold,
             proposal_counter,
             vault,
-            seed,
+            multisig_id,
             bump,
             vault_bump,
         })
@@ -106,9 +105,9 @@ impl Multisig {
         bytes[38] = self.veto_threshold;
         bytes[39..47].copy_from_slice(&self.proposal_counter.to_le_bytes());
         bytes[47..79].copy_from_slice(&self.vault);
-        bytes[79..81].copy_from_slice(&self.seed.to_le_bytes());
-        bytes[81] = self.bump;
-        bytes[82] = self.vault_bump;
+        bytes[79..87].copy_from_slice(&self.multisig_id.to_le_bytes());
+        bytes[87] = self.bump;
+        bytes[88] = self.vault_bump;
         bytes
     }
 }

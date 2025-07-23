@@ -4,7 +4,7 @@ use pinocchio::{
 };
 
 use crate::instruction::{
-    add_member, create_proposal, init_multisig, modify_config, remove_member, vote,
+    add_member, create_proposal, execute, init_multisig, modify_config, remove_member, vote,
 };
 
 entrypoint!(process_instruction);
@@ -26,6 +26,7 @@ pub fn process_instruction(
         3 => remove_member::process_remove_member_instruction(accounts, data)?,
         4 => create_proposal::process_create_proposal_instruction(accounts, data)?,
         5 => vote::process_vote_instruction(accounts, data)?,
+        6 => execute::process_execute_instruction(accounts, data)?,
         _ => return Err(ProgramError::InvalidInstructionData),
     }
     Ok(())

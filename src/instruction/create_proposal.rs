@@ -9,7 +9,7 @@ use pinocchio::{
 use pinocchio_system::instructions::CreateAccount;
 use shank::ShankType;
 
-use crate::state::{get_admin_index_if_exists, load_ix_data, utils::DataLen, Multisig, Proposal};
+use crate::state::{get_admin_index_if_exists, utils::DataLen, Multisig, Proposal};
 
 pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]) -> ProgramResult {
     let [payer_acc, multisig_acc, proposal_acc, sysvar_rent_acc, _remaining_accounts @ ..] =
@@ -34,13 +34,15 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
     let rent = Rent::from_account_info(sysvar_rent_acc)?;
 
     let (ix_data_bytes, _members_bytes) = data.split_at(CreateProposalData::LEN);
-    let ix_data = unsafe { load_ix_data::<CreateProposalData>(ix_data_bytes)? };
+    let ix_data = CreateProposalData::from_bytes(ix_data_bytes);
 
+    msg!("ix_data: {:?}", ix_data);
     let pda_bump_bytes = [ix_data.proposal_bump];
 
     let multisig_data = unsafe { multisig_acc.borrow_mut_data_unchecked() };
     let mut multisig = Multisig::from_bytes(&multisig_data[..Multisig::LEN])?;
 
+    msg!("Validating PDA");
     // Validate the PDA
     Proposal::validate_pda(
         ix_data.proposal_bump,
@@ -50,15 +52,16 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
     )?;
 
     // Signer seeds
-    let proposal_id_bytes = (multisig.proposal_counter).to_le_bytes();
-    let multisig_signer_seeds = [
+    let multisig_proposal_counter = multisig.proposal_counter.to_le_bytes();
+    let signer_seeds = [
         Seed::from(Proposal::SEED.as_bytes()),
         Seed::from(multisig_acc.key().as_ref()),
-        Seed::from(proposal_id_bytes.as_ref()),
+        Seed::from(&multisig_proposal_counter[..]),
         Seed::from(&pda_bump_bytes[..]),
     ];
-    let multisig_signers = [Signer::from(&multisig_signer_seeds[..])];
+    let signers = [Signer::from(&signer_seeds[..])];
 
+    msg!("Getting admin index");
     let admin_index = get_admin_index_if_exists(payer_acc.key(), unsafe {
         multisig_acc.borrow_data_unchecked()
     })?;
@@ -72,7 +75,7 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
         owner: &crate::ID,
         lamports: rent.minimum_balance(space),
     }
-    .invoke_signed(&multisig_signers)?;
+    .invoke_signed(&signers)?;
 
     let proposal = Proposal::new(
         *multisig_acc.key(),
@@ -93,23 +96,31 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
 #[repr(C)]
 #[derive(Debug, Clone, Copy, ShankType)]
 pub struct CreateProposalData {
+    pub multisig_id: u64,
     pub multisig_bump: u8,
     pub proposal_bump: u8,
 }
 
 impl DataLen for CreateProposalData {
-    const LEN: usize = 1 + 1;
+    const LEN: usize = 8 + 1 + 1;
 }
 
 impl CreateProposalData {
     pub fn from_bytes(bytes: &[u8]) -> Self {
         Self {
-            multisig_bump: bytes[0],
-            proposal_bump: bytes[1],
+            multisig_id: u64::from_le_bytes([
+                bytes[0], bytes[1], bytes[2], bytes[3], bytes[4], bytes[5], bytes[6], bytes[7],
+            ]),
+            multisig_bump: bytes[8],
+            proposal_bump: bytes[9],
         }
     }
 
     pub fn to_bytes(&self) -> [u8; Self::LEN] {
-        [self.multisig_bump, self.proposal_bump]
+        let mut bytes = [0u8; Self::LEN];
+        bytes[0..8].copy_from_slice(&self.multisig_id.to_le_bytes());
+        bytes[8] = self.multisig_bump;
+        bytes[9] = self.proposal_bump;
+        bytes
     }
 }
