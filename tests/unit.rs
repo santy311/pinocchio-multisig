@@ -303,6 +303,27 @@ fn create_execute_ix(
     }
 }
 
+fn print_stats(
+    svm: &LiteSVM,
+    tx_result: &litesvm::types::TransactionMetadata,
+    state_pda: &Pubkey,
+    proposal_acc: &Option<Pubkey>,
+) {
+    println!("=========== Stats ===========");
+    println!("cu units consumed: {:?}", tx_result.compute_units_consumed);
+    println!(
+        "multisig size: {:?}",
+        svm.get_account(&state_pda).unwrap().data.len()
+    );
+    if let Some(proposal_acc) = proposal_acc {
+        println!(
+            "proposal size: {:?}",
+            svm.get_account(&proposal_acc).unwrap().data.len()
+        );
+    }
+    println!("=========== End of stats ===========");
+}
+
 #[test]
 fn test_initialize_and_add_mapping() {
     let (mut svm, fee_payer, second_admin, program_id) = setup_svm_and_program();
@@ -325,7 +346,8 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
     let multisig_bytes = &multisig_data[..Multisig::LEN];
@@ -356,7 +378,8 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
 
@@ -381,7 +404,8 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
     let members_data = &multisig_data[Multisig::LEN..];
@@ -425,7 +449,8 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
     let multisig_bytes = &multisig_data[..Multisig::LEN];
@@ -458,7 +483,8 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
     let multisig_bytes = &multisig_data[..Multisig::LEN];
@@ -493,7 +519,8 @@ fn test_initialize_and_add_mapping() {
     let msg =
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
     let proposal_bytes = &proposal_data[..Proposal::LEN];
@@ -563,7 +590,9 @@ fn test_five_members_different_votes() {
     let msg = v0::Message::try_compile(&member1.pubkey(), &[init_ix], &[], svm.latest_blockhash())
         .unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    println!("Initializing multisig");
+    print_stats(&svm, &result, &state_pda, &None);
 
     // Create proposal
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -593,7 +622,8 @@ fn test_five_members_different_votes() {
     )
     .unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     // Each member votes: [yes, no, veto, yes, no]
     let votes = [1, 0, 2, 1, 0];
@@ -612,7 +642,8 @@ fn test_five_members_different_votes() {
         let msg =
             v0::Message::try_compile(&member.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
         let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[member]).unwrap();
-        svm.send_transaction(tx).unwrap();
+        let result = svm.send_transaction(tx).unwrap();
+        print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
     }
 
     // Check proposal vote counts
@@ -684,7 +715,8 @@ fn test_five_members_different_votes() {
     let msg =
         v0::Message::try_compile(&member1.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
-    svm.send_transaction(tx).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     // Check proposal status
     let proposal_data = svm.get_account(&proposal_acc).unwrap().data;

@@ -61,7 +61,6 @@ pub fn process_execute_instruction(accounts: &[AccountInfo], data: &[u8]) -> Pro
         proposal.status = ProposalStatus::Rejected as u8;
     }
 
-    msg!("Updating proposal status to {:?}", proposal.status);
     unsafe {
         proposal_acc.borrow_mut_data_unchecked()[..Proposal::LEN]
             .copy_from_slice(&proposal.to_bytes());

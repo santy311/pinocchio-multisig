@@ -36,13 +36,11 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
     let (ix_data_bytes, _members_bytes) = data.split_at(CreateProposalData::LEN);
     let ix_data = CreateProposalData::from_bytes(ix_data_bytes);
 
-    msg!("ix_data: {:?}", ix_data);
     let pda_bump_bytes = [ix_data.proposal_bump];
 
     let multisig_data = unsafe { multisig_acc.borrow_mut_data_unchecked() };
     let mut multisig = Multisig::from_bytes(&multisig_data[..Multisig::LEN])?;
 
-    msg!("Validating PDA");
     // Validate the PDA
     Proposal::validate_pda(
         ix_data.proposal_bump,
@@ -61,7 +59,6 @@ pub fn process_create_proposal_instruction(accounts: &[AccountInfo], data: &[u8]
     ];
     let signers = [Signer::from(&signer_seeds[..])];
 
-    msg!("Getting admin index");
     let admin_index = get_admin_index_if_exists(payer_acc.key(), unsafe {
         multisig_acc.borrow_data_unchecked()
     })?;

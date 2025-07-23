@@ -28,7 +28,6 @@ pub fn process_add_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> 
     let (ix_data_bytes, members_bytes) = data.split_at(AddMemberData::LEN);
     let ix_data = AddMemberData::from_bytes(ix_data_bytes);
 
-    msg!("ix_data: {:?}", ix_data);
     let pda_bump_bytes = [ix_data.bump];
 
     // Validate the PDA

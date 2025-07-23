@@ -66,9 +66,6 @@ impl Proposal {
         multisig_acc: &Pubkey,
     ) -> Result<(), ProgramError> {
         let proposal_id_bytes = &proposal_id.to_le_bytes();
-        msg!("multisig_acc: {:?}", multisig_acc);
-        msg!("Proposal ID: {:?}", proposal_id);
-        msg!("Bump: {:?}", bump);
         let seed_with_bump = &[
             Self::SEED.as_bytes(),
             multisig_acc.as_ref(),
@@ -77,8 +74,6 @@ impl Proposal {
         ];
         let derived = pubkey::create_program_address(seed_with_bump, &crate::ID)?;
         if derived != *pda {
-            msg!("Derived: {:?}", derived);
-            msg!("PDA: {:?}", pda);
             return Err(MultisigError::PdaMismatch.into());
         }
         Ok(())

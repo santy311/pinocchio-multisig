@@ -32,10 +32,8 @@ pub fn process_init_multisig_instruction(accounts: &[AccountInfo], data: &[u8]) 
     let pda_bump_bytes = [ix_data.bump];
 
     // Validate the PDA
-    msg!("Validating PDA");
     Multisig::validate_pda(ix_data.bump, multisig_acc.key(), ix_data.multisig_id)?;
 
-    msg!("Validating Vault PDA");
     Vault::validate_pda(ix_data.vault_bump, vault_acc.key(), multisig_acc.key())?;
 
     // Signer seeds
