@@ -444,6 +444,35 @@ fn test_initialize_and_add_mapping() {
         );
     }
 
+    // Success: Add member
+    println!("=========== Adding member ===========");
+
+    svm.expire_blockhash();
+
+    let ix = create_add_member_ix(program_id, &fee_payer, state_pda, state_bump, multisig_id);
+    let msg =
+        v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
+    let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
+    let result = svm.send_transaction(tx).unwrap();
+    print_stats(&svm, &result, &state_pda, &None);
+
+    let multisig_data = svm.get_account(&state_pda).unwrap().data;
+
+    let multisig_bytes = &multisig_data[..Multisig::LEN];
+    let multisig = Multisig::from_bytes(multisig_bytes).unwrap();
+    assert_eq!(multisig.num_members, 6);
+
+    let members_data = &multisig_data[Multisig::LEN..];
+    for member_data in members_data.chunks(Member::LEN) {
+        let member = Member::from_bytes(member_data).unwrap();
+        println!(
+            "Member id {}: {:?} with admin role {}",
+            member.member_id,
+            Pubkey::new_from_array(member.pubkey),
+            member.role == 1
+        );
+    }
+
     println!("=========== Modifying config ===========");
     let ix = modify_config_ix(program_id, &fee_payer, state_pda, state_bump, multisig_id);
     let msg =

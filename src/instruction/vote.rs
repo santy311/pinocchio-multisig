@@ -83,6 +83,7 @@ pub fn process_vote_instruction(accounts: &[AccountInfo], data: &[u8]) -> Progra
     match ix_data.vote {
         0 => {
             // No vote: insert at end of no section, shift veto right
+            // TODO: Check insert position
             voter_list_data
                 .copy_within(yes_votes + no_votes..total_votes, yes_votes + no_votes + 1);
             voter_list_data[yes_votes + no_votes] = member_index;

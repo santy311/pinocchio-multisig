@@ -18,6 +18,7 @@ pub struct Multisig {
     pub max_expiry_duration: u32,
     pub veto_threshold: u8,
     pub proposal_counter: u64,
+    pub members_counter: u8,
     pub vault: [u8; 32],
     pub multisig_id: u64,
     pub bump: u8,
@@ -25,7 +26,7 @@ pub struct Multisig {
 }
 
 impl DataLen for Multisig {
-    const LEN: usize = 32 + 1 + 1 + 4 + 1 + 8 + 32 + 8 + 1 + 1;
+    const LEN: usize = 32 + 1 + 1 + 4 + 1 + 8 + 32 + 8 + 1 + 1 + 1;
 }
 
 impl Multisig {
@@ -49,6 +50,7 @@ impl Multisig {
             max_expiry_duration,
             veto_threshold,
             proposal_counter: 0,
+            members_counter: num_members,
             vault,
             multisig_id,
             bump,
@@ -77,11 +79,12 @@ impl Multisig {
         let veto_threshold = bytes[38];
         let proposal_counter =
             u64::from_le_bytes(unsafe { *(bytes.as_ptr().add(39) as *const [u8; 8]) });
-        let vault = unsafe { *(bytes.as_ptr().add(47) as *const [u8; 32]) };
+        let members_counter = bytes[47];
+        let vault = unsafe { *(bytes.as_ptr().add(48) as *const [u8; 32]) };
         let multisig_id =
-            u64::from_le_bytes(unsafe { *(bytes.as_ptr().add(79) as *const [u8; 8]) });
-        let bump = bytes[87];
-        let vault_bump = bytes[88];
+            u64::from_le_bytes(unsafe { *(bytes.as_ptr().add(80) as *const [u8; 8]) });
+        let bump = bytes[88];
+        let vault_bump = bytes[89];
         Ok(Self {
             creator,
             threshold,
@@ -89,6 +92,7 @@ impl Multisig {
             max_expiry_duration,
             veto_threshold,
             proposal_counter,
+            members_counter,
             vault,
             multisig_id,
             bump,
@@ -104,10 +108,11 @@ impl Multisig {
         bytes[34..38].copy_from_slice(&self.max_expiry_duration.to_le_bytes());
         bytes[38] = self.veto_threshold;
         bytes[39..47].copy_from_slice(&self.proposal_counter.to_le_bytes());
-        bytes[47..79].copy_from_slice(&self.vault);
-        bytes[79..87].copy_from_slice(&self.multisig_id.to_le_bytes());
-        bytes[87] = self.bump;
-        bytes[88] = self.vault_bump;
+        bytes[47] = self.members_counter;
+        bytes[48..80].copy_from_slice(&self.vault);
+        bytes[80..88].copy_from_slice(&self.multisig_id.to_le_bytes());
+        bytes[88] = self.bump;
+        bytes[89] = self.vault_bump;
         bytes
     }
 }

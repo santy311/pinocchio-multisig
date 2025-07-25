@@ -71,11 +71,14 @@ pub fn process_add_member_instruction(accounts: &[AccountInfo], data: &[u8]) -> 
         let member_segment = &mut multisig_data
             [last_member_offset + i * Member::LEN..last_member_offset + (i + 1) * Member::LEN];
         let mut member_bytes = member_data.to_bytes();
-        member_bytes[32] = old_num_members + i as u8;
+        member_bytes[32] = multisig.members_counter + i as u8;
+        // TODO: optimize
         member_segment.copy_from_slice(&member_bytes);
     }
 
     multisig.num_members += ix_data.num_members;
+    multisig.members_counter += ix_data.num_members;
+
     multisig_data[..Multisig::LEN].copy_from_slice(&multisig.to_bytes());
 
     Ok(())
