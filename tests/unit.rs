@@ -321,7 +321,6 @@ fn print_stats(
             svm.get_account(&proposal_acc).unwrap().data.len()
         );
     }
-    println!("=========== End of stats ===========");
 }
 
 #[test]
@@ -347,6 +346,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Initialize multisig");
     print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -379,6 +379,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Add member");
     print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -405,6 +406,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Remove member");
     print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -454,6 +456,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Add member");
     print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -479,6 +482,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Modify config");
     print_stats(&svm, &result, &state_pda, &None);
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -513,6 +517,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Create proposal");
     print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     let multisig_data = svm.get_account(&state_pda).unwrap().data;
@@ -549,6 +554,7 @@ fn test_initialize_and_add_mapping() {
         v0::Message::try_compile(&fee_payer.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&fee_payer]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Vote");
     print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     let proposal_data = svm.get_account(&proposal_acc).unwrap().data;
@@ -620,7 +626,7 @@ fn test_five_members_different_votes() {
         .unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
-    println!("Initializing multisig");
+    println!("Action: Initialize multisig with 5 members");
     print_stats(&svm, &result, &state_pda, &None);
 
     // Create proposal
@@ -652,6 +658,7 @@ fn test_five_members_different_votes() {
     .unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Create proposal");
     print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     // Each member votes: [yes, no, veto, yes, no]
@@ -672,6 +679,7 @@ fn test_five_members_different_votes() {
             v0::Message::try_compile(&member.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
         let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[member]).unwrap();
         let result = svm.send_transaction(tx).unwrap();
+        println!("Action: Vote (member {})", i);
         print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
     }
 
@@ -745,6 +753,7 @@ fn test_five_members_different_votes() {
         v0::Message::try_compile(&member1.pubkey(), &[ix], &[], svm.latest_blockhash()).unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[&member1]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Execute proposal");
     print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     // Check proposal status
@@ -811,7 +820,7 @@ fn test_max_members_and_votes() {
     .unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[member_refs[0]]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
-    println!("Initializing multisig with 250 members");
+    println!("Action: Initialize multisig with 250 members");
     print_stats(&svm, &result, &state_pda, &None);
 
     // Create proposal
@@ -843,6 +852,7 @@ fn test_max_members_and_votes() {
     .unwrap();
     let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[member_refs[0]]).unwrap();
     let result = svm.send_transaction(tx).unwrap();
+    println!("Action: Create proposal");
     print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 
     // All 250 members vote yes (vote = 1)
@@ -863,7 +873,11 @@ fn test_max_members_and_votes() {
         let tx = VersionedTransaction::try_new(VersionedMessage::V0(msg), &[member]).unwrap();
         let result = svm.send_transaction(tx).unwrap();
         if (i + 1) % 25 == 0 {
-            println!("{} members have voted...", i + 1);
+            println!(
+                "Action: Vote (member {}) - {} members have voted...",
+                i,
+                i + 1
+            );
         }
     }
 
@@ -876,6 +890,9 @@ fn test_max_members_and_votes() {
     let voter_list_data = &proposal_data[Proposal::LEN..];
     let voter_list = voter_list_data.chunks(1).map(|v| v[0]).collect::<Vec<u8>>();
     assert_eq!(voter_list.len(), 250);
-    println!("All 250 members voted yes. Proposal: {:?}", proposal);
+    println!(
+        "Action: All 250 members voted yes. Proposal: {:?}",
+        proposal
+    );
     print_stats(&svm, &result, &state_pda, &Some(proposal_acc));
 }

@@ -61,15 +61,30 @@ pub fn process_remove_member_instruction(accounts: &[AccountInfo], data: &[u8]) 
 
     if let Some(member_index) = member_index {
         let member_offset = Multisig::LEN + member_index * Member::LEN;
-        multisig_data.copy_within(member_offset + Member::LEN.., member_offset);
-        multisig.num_members = old_num_members - 1;
-        multisig_data[..Multisig::LEN].copy_from_slice(&multisig.to_bytes());
 
-        // make it as 0
-        let remove_from_offset = Multisig::LEN + old_num_members as usize * Member::LEN;
-        for b in &mut multisig_data[remove_from_offset..] {
+        // Copy the last member to the removed member's position
+        let last_member_offset = Multisig::LEN + (old_num_members - 1) as usize * Member::LEN;
+
+        // Read the last member data before modifying multisig_data
+        let last_member_data = unsafe {
+            load_ix_data::<Member>(
+                &multisig_data[last_member_offset..last_member_offset + Member::LEN],
+            )?
+        };
+        let last_member_bytes = last_member_data.to_bytes();
+
+        // Now we can safely modify multisig_data
+        multisig_data[member_offset..member_offset + Member::LEN]
+            .copy_from_slice(&last_member_bytes);
+
+        // Clear the last member's data
+        for b in &mut multisig_data[last_member_offset..last_member_offset + Member::LEN] {
             *b = 0;
         }
+
+        // Update the member count
+        multisig.num_members = old_num_members - 1;
+        multisig_data[..Multisig::LEN].copy_from_slice(&multisig.to_bytes());
 
         multisig_acc.resize(space as usize)?;
     } else {
